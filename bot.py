@@ -2,31 +2,44 @@
 # 🟢 EASY CUSTOMIZATION BLOCK (सिर्फ इसे बदलें अपने 20 चैनल्स के लिए!) 🟢
 # =======================================================================
 
-BGM_FILE = "./bgm.mp3" 
+# 1. 🎵 BACKGROUND MUSIC
+BGM_FILE = "./bgm.mp3" # गिटहब में अपनी मनपसंद mp3 फाइल डालें
 BGM_VOLUME = 0.25      
 
+# 2. 🗣️ VOICES & SPEED 
 VOICE_QUESTION = "hi-IN-MadhurNeural" 
 VOICE_ANSWER = "hi-IN-SwaraNeural"    
-VOICE_SPEED = "+0%"                   
+VOICE_SPEED = "+0%" # इसे अलग-अलग चैनल पर बदलें (उदा: "+10%", "-5%")
 
-TIMER_SECONDS = 5.0  
+# 3. ⏳ TIMER (सोचने का समय)
+TIMER_SECONDS = 5.0 # GK के लिए 5.0, Math/Physics के लिए 10.0
 
+# 4. 🎨 VIDEO BACKGROUND COLORS (Easy, Medium, Hard)
 BG_COLORS = [
-    (15, 32, 39),   
-    (66, 39, 9),    
-    (60, 10, 10)    
+    (15, 32, 39),   # Dark Blue
+    (66, 39, 9),    # Dark Orange
+    (60, 10, 10)    # Dark Red
 ]
 
-THUMB_TEMPLATE = "./thumb_template.jpg" 
+# 5. 🖼️ THUMBNAIL INTRO SETTINGS
+THUMB_TEMPLATE = "./thumb_template.jpg" # आपकी डिज़ाइन वाली फोटो
 THUMB_BG_COLORS = [(20, 20, 40), (40, 10, 10), (10, 40, 10), (30, 0, 30)] 
 THUMB_HOOKS = ["99% लोग फेल! 🤔", "दिमाग हिला देने वाले सवाल! 🤯", "क्या आप जवाब दे पाएंगे? 👀"]
 
+# 6. 📝 YOUTUBE SEO (Title, Description, Tags)
 YT_TITLES = [
-    "Most Important GK Questions in Hindi 🔥 | Test Mode",
+    "Most Important GK Questions in Hindi 🔥 | Mega Quiz Test",
+    "Top GK Quiz in Hindi 🤔 | General Knowledge Test",
+    "GK Questions That Will Blow Your Mind 🤯 | Hindi Quiz"
 ]
-YT_DESC_ADDON = "टेस्टिंग मोड वीडियो।"
-YT_TAGS_POOL = [["gk", "hindi gk", "test"]]
+YT_DESC_ADDON = "इस वीडियो में आपके लिए बहुत महत्वपूर्ण सवाल हैं। देखते हैं आप कितनों का सही जवाब दे पाते हैं!"
+YT_TAGS_POOL = [
+    ["gk", "hindi gk", "mega quiz", "gk test", "education"],
+    ["general knowledge", "gk in hindi", "top gk", "gk challenge"],
+    ["upsc gk", "ssc gk", "competitive exams gk", "hindi questions"]
+]
 
+# 7. 🔠 FONT FILE
 HINDI_FONT = "./NirmalaB.ttf" 
 
 # =======================================================================
@@ -99,18 +112,16 @@ def make_tick_sfx(duration=TIMER_SECONDS):
         return np.where(t_mod < 0.1, click, 0)
     return AudioClip(lambda t: np.vstack([sound_wave(t), sound_wave(t)]).T, duration=duration, fps=44100).volumex(1.5)
 
-# 🧪 TEST MODE LOGIC (Fixed 4 Questions)
-async def prepare_test_questions():
-    print(f"🎯 Test Mode: सिर्फ 4 सवाल ले रहा हूँ...")
+async def prepare_questions_by_time():
+    target_seconds = random.randint(13*60, 14*60) 
+    print(f"🎯 Target Time: {target_seconds // 60} min {target_seconds % 60} sec")
+
     with open(JSON_FILE_PATH, 'r', encoding='utf-8') as f: all_q = json.load(f)
 
-    if len(all_q) < 4:
-        print("❌ Error: JSON में 4 सवाल भी नहीं हैं!")
-        sys.exit(1)
+    used_quizzes = []
+    current_time = 3.0 
 
-    used_quizzes = all_q[:4]
-
-    for i, quiz in enumerate(used_quizzes):
+    for i, quiz in enumerate(all_q):
         text_a = quiz['opt_a'].replace("A)", "").strip()
         text_b = quiz['opt_b'].replace("B)", "").strip()
         text_c = quiz['opt_c'].replace("C)", "").strip()
@@ -123,15 +134,25 @@ async def prepare_test_questions():
         q_path = await generate_voice(speech_q_opts, f"q_{i}.mp3", "male")
         a_path = await generate_voice(speech_ans, f"a_{i}.mp3", "female")
 
+        q_clip = AudioFileClip(q_path)
+        a_clip = AudioFileClip(a_path)
+        chunk_dur = q_clip.duration + 0.5 + TIMER_SECONDS + a_clip.duration + 1.5
+        q_clip.close(); a_clip.close()
+
+        if current_time + chunk_dur > target_seconds and len(used_quizzes) >= 15:
+            print(f"✅ Target time reached! Total selected questions: {len(used_quizzes)}")
+            break
+
         quiz['q_audio'] = q_path
         quiz['a_audio'] = a_path
+        used_quizzes.append(quiz)
+        current_time += chunk_dur
 
-    # Last question suspense
     last_q = used_quizzes[-1]
     suspense_path = await generate_voice("इसका जवाब आप कमेंट्स में बताइए!", f"a_last.mp3", "female")
     last_q['a_audio'] = suspense_path
 
-    remaining = all_q[4:]
+    remaining = all_q[len(used_quizzes):]
     with open(JSON_FILE_PATH, 'w', encoding='utf-8') as f: json.dump(remaining, f, ensure_ascii=False, indent=4)
     return used_quizzes
 
@@ -156,7 +177,6 @@ def create_thumbnail_intro(total_q):
         except: f_small = ImageFont.load_default()
         d.text((100, 800), random.choice(THUMB_HOOKS), fill=(255, 50, 50), font=f_small)
 
-    # 🛠️ BUG FIXED HERE (THUMBNAIL_FILE instead of THUMB_FILE)
     img.save(THUMBNAIL_FILE)
     intro_clip = ImageClip(THUMBNAIL_FILE).set_duration(3).set_fps(24)
     silent_audio = AudioClip(lambda t: [0, 0], duration=3, fps=44100)
@@ -251,7 +271,7 @@ def upload_to_youtube(video_file, total_q):
     token_files = sorted([os.path.join(TOKENS_FOLDER, f) for f in os.listdir(TOKENS_FOLDER) if f.endswith('.json')])
     
     yt_title = f"{total_q} {random.choice(YT_TITLES)}"
-    yt_desc = f"{yt_title}\n\n{YT_DESC_ADDON}\n\n#quiz"
+    yt_desc = f"{yt_title}\n\n{YT_DESC_ADDON}\n\nआखिरी सवाल का जवाब कमेंट में ज़रूर बताएं! 👇\n\n#quiz #education"
     yt_tags = random.choice(YT_TAGS_POOL)
     
     request_body = {
@@ -278,10 +298,11 @@ def upload_to_youtube(video_file, total_q):
     return False
 
 async def main():
-    print(f"🤖 Test Mode: वीडियो बनाने से पहले 5 सेकंड इंतज़ार कर रहा है...")
-    time.sleep(5) 
+    wait_time = random.randint(300, 1800) # 5 से 30 मिनट का रैंडम इंतज़ार
+    print(f"🤖 Anti-Bot: वीडियो बनाने से पहले {wait_time // 60} मिनट इंतज़ार कर रहा है...")
+    time.sleep(wait_time) 
     
-    quizzes = await prepare_test_questions()
+    quizzes = await prepare_questions_by_time()
     total_q = len(quizzes)
     
     intro_path = create_thumbnail_intro(total_q)
