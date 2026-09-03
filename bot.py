@@ -2,12 +2,12 @@
 # 🟢 EASY CUSTOMIZATION BLOCK (अपने 20 चैनल्स के लिए इसे बदलें) 🟢
 # =======================================================================
 
-# 1. 🏷️ TOP CENTER BANNER (स्क्रीन के ऊपर बीच में लाल रंग से क्या लिखना है?)
-TOP_CENTER_TITLE = "GK Questions" # Physics चैनल के लिए "Physics Questions" कर दें
+# 1. 🏷️ TOP CENTER BANNER 
+TOP_CENTER_TITLE = "GK Questions" 
 
 # 2. 🎵 BACKGROUND MUSIC
 BGM_FILE = "./bgm.mp3" 
-BGM_VOLUME = 0.35  # 🔊 आवाज़ बढ़ा दी गई है    
+BGM_VOLUME = 0.35  
 
 # 3. 🗣️ VOICES & SPEED 
 VOICE_QUESTION = "hi-IN-MadhurNeural" 
@@ -22,6 +22,19 @@ CHANNEL_WATERMARK = "Zoom Mind"
 
 THUMB_TEMPLATE = "./thumb_template.jpg" 
 HINDI_FONT = "./NirmalaB.ttf" 
+
+# 6. 📝 YOUTUBE SEO (Random Titles & Tags)
+YT_TITLES = [
+    "Most Important GK Questions in Hindi 🔥 | Mega Quiz Test",
+    "Top GK Quiz in Hindi 🤔 | General Knowledge Test",
+    "GK Questions That Will Blow Your Mind 🤯 | Hindi Quiz"
+]
+YT_DESC_ADDON = "इस वीडियो में आपके लिए बहुत महत्वपूर्ण सवाल हैं। देखते हैं आप कितनों का सही जवाब दे पाते हैं!"
+YT_TAGS_POOL = [
+    ["gk", "hindi gk", "mega quiz", "gk test", "education"],
+    ["general knowledge", "gk in hindi", "top gk", "gk challenge"],
+    ["upsc gk", "ssc gk", "competitive exams gk", "hindi questions"]
+]
 
 # =======================================================================
 # 🛑 STOP! DO NOT EDIT BELOW THIS LINE 🛑
@@ -39,17 +52,22 @@ Image.ANTIALIAS = resample_filter
 import edge_tts
 from moviepy.editor import AudioFileClip, TextClip, ColorClip, ImageClip, CompositeVideoClip, CompositeAudioClip
 from moviepy.audio.AudioClip import AudioClip
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google.auth.transport.requests import Request
 
 OUTPUT_FOLDER = "./output"
 TEMP_FOLDER = "./temp"
 JSON_FILE_PATH = "./questions.json"
+TOKENS_FOLDER = "./tokens"  
 BG_FOLDER = "./bgs" 
+THUMBNAIL_FILE = "./output/thumbnail.jpg"
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 os.makedirs(BG_FOLDER, exist_ok=True)
 
-# 🌟 TOP CENTER BANNER GENERATOR (Red Text + Box)
 def create_top_banner(text, filename):
     try: font = ImageFont.truetype(HINDI_FONT, 50)
     except: font = ImageFont.load_default()
@@ -62,11 +80,7 @@ def create_top_banner(text, filename):
     img_w, img_h = w + 80, h + 30
     img = Image.new('RGBA', (img_w, img_h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-
-    # Draw White Box with Dark Red Border
     draw.rectangle([(5, 5), (img_w-5, img_h-5)], fill=(255, 255, 255, 230), outline=(150, 0, 0, 255), width=3)
-    
-    # Draw Red Text
     draw.text(((img_w - w)/2, (img_h - h)/2 - 5), text, font=font, fill=(200, 0, 0, 255))
 
     filepath = os.path.join(TEMP_FOLDER, filename)
@@ -80,10 +94,8 @@ def get_multicolor_hindi_image_clip(text, filename, font_size, default_color, hi
     highlight_indices = []
     if highlight and len(words) > 3:
         valid_indices = [i for i, w in enumerate(words) if len(w) > 2]
-        if len(valid_indices) >= 2:
-            highlight_indices = random.sample(valid_indices, 2)
-        elif valid_indices:
-            highlight_indices = valid_indices
+        if len(valid_indices) >= 2: highlight_indices = random.sample(valid_indices, 2)
+        elif valid_indices: highlight_indices = valid_indices
 
     lines = []
     current_line = []; current_length = 0
@@ -99,18 +111,14 @@ def get_multicolor_hindi_image_clip(text, filename, font_size, default_color, hi
         
     dummy_img = Image.new('RGBA', (1, 1))
     draw = ImageDraw.Draw(dummy_img)
-    
-    max_w = 0; y_text = 0
-    line_heights = []; line_widths = []
+    max_w = 0; y_text = 0; line_heights = []; line_widths = []
     
     for line in lines:
         line_str = " ".join([w[0] for w in line])
         bbox = draw.textbbox((0, 0), line_str, font=font)
         lw = bbox[2] - bbox[0]
         lh = bbox[3] - bbox[1]
-        max_w = max(max_w, lw)
-        line_widths.append(lw)
-        line_heights.append(lh)
+        max_w = max(max_w, lw); line_widths.append(lw); line_heights.append(lh)
         y_text += lh + 15
         
     img = Image.new('RGBA', (max_w + 40, y_text + 40), (255, 255, 255, 0))
@@ -147,34 +155,77 @@ def make_tick_sfx(duration=TIMER_SECONDS):
         return np.where(t_mod < 0.1, click, 0)
     return AudioClip(lambda t: np.vstack([sound_wave(t), sound_wave(t)]).T, duration=duration, fps=44100).volumex(1.5)
 
-async def prepare_test_questions():
-    print(f"🎯 Test Mode: 4 सवाल ले रहा हूँ...")
+async def prepare_questions_by_time():
+    target_seconds = random.randint(13*60, 14*60) # 13 to 14 mins
+    print(f"🎯 Target Time: {target_seconds // 60} min {target_seconds % 60} sec")
+
     with open(JSON_FILE_PATH, 'r', encoding='utf-8') as f: all_q = json.load(f)
-    if len(all_q) < 4:
-        print("❌ Error: JSON में 4 सवाल भी नहीं हैं!")
-        sys.exit(1)
-    
-    used_quizzes = all_q[:4]
-    for i, quiz in enumerate(used_quizzes):
+
+    used_quizzes = []
+    current_time = 3.0 
+
+    for i, quiz in enumerate(all_q):
         text_a = quiz['opt_a'].replace("A)", "").replace("A.", "").strip()
         text_b = quiz['opt_b'].replace("B)", "").replace("B.", "").strip()
         text_c = quiz['opt_c'].replace("C)", "").replace("C.", "").strip()
         correct_key = quiz['correct_key']
         correct_ans_text = text_a if correct_key == 'A' else text_b if correct_key == 'B' else text_c
 
-        # 🧹 FIX: Removing any existing "प्रश्न संख्या X:" from JSON
         clean_question = re.sub(r"^प्रश्न.*?:\s*", "", quiz['question'])
-        quiz['clean_q'] = clean_question # Saving clean question for visual rendering
+        quiz['clean_q'] = clean_question
 
         speech_q_opts = f"{clean_question}... ऑप्शन ए, {text_a}... ऑप्शन बी, {text_b}... ऑप्शन सी, {text_c}"
         speech_ans = f"सही जवाब है, {correct_ans_text}"
 
-        quiz['q_audio'] = await generate_voice(speech_q_opts, f"q_{i}.mp3", "male")
-        quiz['a_audio'] = await generate_voice(speech_ans, f"a_{i}.mp3", "female")
+        q_path = await generate_voice(speech_q_opts, f"q_{i}.mp3", "male")
+        a_path = await generate_voice(speech_ans, f"a_{i}.mp3", "female")
+
+        q_clip = AudioFileClip(q_path)
+        a_clip = AudioFileClip(a_path)
+        chunk_dur = q_clip.duration + 0.5 + TIMER_SECONDS + a_clip.duration + 1.5
+        q_clip.close(); a_clip.close()
+
+        if current_time + chunk_dur > target_seconds and len(used_quizzes) >= 15:
+            print(f"✅ Target time reached! Total selected questions: {len(used_quizzes)}")
+            break
+
+        quiz['q_audio'] = q_path
+        quiz['a_audio'] = a_path
+        used_quizzes.append(quiz)
+        current_time += chunk_dur
 
     last_q = used_quizzes[-1]
-    last_q['a_audio'] = await generate_voice("इसका जवाब आप कमेंट्स में बताइए!", f"a_last.mp3", "female")
+    suspense_path = await generate_voice("इसका जवाब आप कमेंट्स में बताइए!", f"a_last.mp3", "female")
+    last_q['a_audio'] = suspense_path
+
+    remaining = all_q[len(used_quizzes):]
+    with open(JSON_FILE_PATH, 'w', encoding='utf-8') as f: json.dump(remaining, f, ensure_ascii=False, indent=4)
     return used_quizzes
+
+def create_thumbnail_intro(total_q):
+    print(f"🎨 Template से Thumbnail Intro बना रहा है ({total_q} Questions)...")
+    if os.path.exists(THUMB_TEMPLATE):
+        img = Image.open(THUMB_TEMPLATE).convert('RGB')
+        img = img.resize((1920, 1080))
+    else:
+        img = Image.new('RGB', (1920, 1080), color=(20, 20, 40))
+        
+    d = ImageDraw.Draw(img)
+    try: font_super_large = ImageFont.truetype(HINDI_FONT, 200)
+    except: font_super_large = ImageFont.load_default()
+
+    dynamic_text = f"TOP {total_q}"
+    d.text((550, 70), dynamic_text, fill=(255, 230, 0), font=font_super_large, stroke_width=15, stroke_fill=(0, 0, 0))
+    
+    img.save(THUMBNAIL_FILE)
+    intro_clip = ImageClip(THUMBNAIL_FILE).set_duration(3).set_fps(24)
+    silent_audio = AudioClip(lambda t: [0, 0], duration=3, fps=44100)
+    intro_clip = intro_clip.set_audio(silent_audio)
+    
+    intro_path = os.path.join(TEMP_FOLDER, "chunk_0_intro.mp4")
+    intro_clip.write_videofile(intro_path, codec="libx264", audio_codec="aac", fps=24, preset="ultrafast", logger=None)
+    intro_clip.close(); silent_audio.close()
+    return intro_path
 
 async def make_video_chunk(quiz, index, total_q, bg_image_path):
     print(f"\n🎬 रेंडर: सवाल {index}/{total_q}")
@@ -192,21 +243,16 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
     s_timer = t; t += TIMER_SECONDS
     s_ans = t; t += aud_ans.duration + 1.5; total = t
 
-    if bg_image_path:
-        bg = ImageClip(bg_image_path).resize((1920, 1080)).set_duration(total).set_fps(24)
-    else:
-        bg = ColorClip(size=(1920, 1080), color=(240, 240, 240)).set_duration(total).set_fps(24)
+    if bg_image_path: bg = ImageClip(bg_image_path).resize((1920, 1080)).set_duration(total).set_fps(24)
+    else: bg = ColorClip(size=(1920, 1080), color=(240, 240, 240)).set_duration(total).set_fps(24)
     
     watermark = TextClip(CHANNEL_WATERMARK, fontsize=120, color='black', font='Arial-Bold').set_opacity(0.04).set_position('center').set_duration(total)
 
-    # 🌟 NEW TOP CENTER BANNER
     top_banner_clip = create_top_banner(TOP_CENTER_TITLE, f"banner_{index}.png").set_position(('center', 30)).set_duration(total)
     
-    # Progress Top Right
     prog_bg = ColorClip(size=(250, 60), color=(10, 20, 40)).set_position((1600, 30)).set_duration(total)
     prog_clip = TextClip(f"Q: {index}/{total_q}", fontsize=40, color='white', font='Arial-Bold').set_position((1630, 40)).set_duration(total)
 
-    # 🔠 Cleaned Question with Red Highlight
     q_text = f"प्रश्न {index}: {quiz['clean_q']}"
     q_color = (0, 0, 0) 
     red_highlight = (200, 0, 0) 
@@ -247,11 +293,9 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
         timer_vis.append(TextClip(f"0{t_val}" if t_val<10 else f"{t_val}", fontsize=140, color=t_color, font='Arial-Bold').set_position(('center', 850)).set_start(s_timer+i).set_duration(1.0))
 
     final_audio = CompositeAudioClip([aud_q_opts.set_start(s_q_opts), tick, aud_ans.set_start(s_ans)])
-    
     visuals = [bg, watermark, top_banner_clip, prog_bg, prog_clip, divider, q_clip, opt_a_clip, opt_b_clip, opt_c_clip] + timer_vis
     
     if not is_last: visuals.append(ans_clip)
-    
     if is_last:
         suspense = get_multicolor_hindi_image_clip("- कमेंट में अपना जवाब दें! -", f"img_susp_{index}.png", 85, (200, 0, 0)).set_position(('center', 850)).set_start(s_ans).set_duration(total - s_ans)
         visuals.append(suspense)
@@ -283,28 +327,57 @@ def merge_videos_and_add_bgm(chunk_files):
         if os.path.exists(merged_no_bgm): os.rename(merged_no_bgm, final_output)
     return final_output
 
-async def main():
-    print(f"🤖 Test Mode: 2 सेकंड इंतज़ार...")
-    time.sleep(2) 
+def upload_to_youtube(video_file, total_q):
+    print("🌐 YouTube पर अपलोड हो रहा है...")
+    token_files = sorted([os.path.join(TOKENS_FOLDER, f) for f in os.listdir(TOKENS_FOLDER) if f.endswith('.json')])
     
-    quizzes = await prepare_test_questions()
+    yt_title = f"{total_q} {random.choice(YT_TITLES)}"
+    yt_desc = f"{yt_title}\n\n{YT_DESC_ADDON}\n\nआखिरी सवाल का जवाब कमेंट में ज़रूर बताएं! 👇\n\n#quiz #education"
+    yt_tags = random.choice(YT_TAGS_POOL)
+    
+    request_body = {
+        "snippet": {"title": yt_title, "description": yt_desc, "tags": yt_tags, "categoryId": "27"},
+        "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+    }
+
+    for token_path in token_files:
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, ["https://www.googleapis.com/auth/youtube.upload"])
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                with open(token_path, 'w') as tf: tf.write(creds.to_json())
+                    
+            youtube = build('youtube', 'v3', credentials=creds)
+            media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
+            request = youtube.videos().insert(part="snippet,status", body=request_body, media_body=media)
+            response = request.execute()
+            print(f"✅ तहलका! वीडियो LIVE: https://youtu.be/{response['id']}")
+            return True
+        except Exception as e:
+            print(f"❌ अपलोड एरर: {e}")
+            continue
+    return False
+
+async def main():
+    wait_time = random.randint(300, 1800) 
+    print(f"🤖 Anti-Bot: वीडियो बनाने से पहले {wait_time // 60} मिनट इंतज़ार कर रहा है...")
+    time.sleep(wait_time) 
+    
+    quizzes = await prepare_questions_by_time()
     total_q = len(quizzes)
     
     bg_files = [f for f in os.listdir(BG_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
-    if bg_files:
-        selected_bg = os.path.join(BG_FOLDER, random.choice(bg_files))
-        print(f"🖼️ बैकग्राउंड सेलेक्ट किया गया: {os.path.basename(selected_bg)}")
-    else:
-        selected_bg = None
-        print("⚠️ 'bgs' फोल्डर खाली है! सफ़ेद बैकग्राउंड यूज़ कर रहा हूँ।")
+    selected_bg = os.path.join(BG_FOLDER, random.choice(bg_files)) if bg_files else None
     
-    chunk_files = []
+    intro_path = create_thumbnail_intro(total_q)
+    chunk_files = [intro_path]
+    
     for i, quiz in enumerate(quizzes):
         chunk_path = await make_video_chunk(quiz, i+1, total_q, selected_bg)
         chunk_files.append(chunk_path)
         
     final_video = merge_videos_and_add_bgm(chunk_files)
-    print("🎉 वीडियो तैयार है! GitHub Artifacts से डाउनलोड करें।")
+    upload_to_youtube(final_video, total_q)
 
 if __name__ == "__main__":
     asyncio.run(main())
