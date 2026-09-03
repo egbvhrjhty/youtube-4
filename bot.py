@@ -34,12 +34,10 @@ TOKENS_FOLDER = "./tokens"
 HINDI_FONT = "./NirmalaB.ttf"
 BGM_FILE = "./bgm.mp3"
 THUMBNAIL_FILE = "./output/thumbnail.jpg"
+THUMB_TEMPLATE = "./thumb_template.jpg" # 🌟 आपकी डिज़ाइन वाली बिना नंबर की फोटो
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
-
-HOOKS = ["99% लोग फेल! 🤔", "दिमाग हिला देने वाले सवाल! 🤯", "क्या आप जवाब दे पाएंगे? 👀", "IAS इंटरव्यू के सवाल! 💼"]
-COLORS = [(20, 20, 40), (40, 10, 10), (10, 40, 10), (30, 0, 30), (0, 30, 40)] 
 
 TAGS_POOL = [
     ["gk", "hindi gk", "mega quiz", "gk test", "education"],
@@ -104,7 +102,7 @@ async def prepare_questions_by_time():
         all_q = json.load(f)
 
     used_quizzes = []
-    current_time = 3.0 # 3 seconds for intro
+    current_time = 3.0 
 
     for i, quiz in enumerate(all_q):
         text_a = quiz['opt_a'].replace("A)", "").strip()
@@ -143,24 +141,36 @@ async def prepare_questions_by_time():
         
     return used_quizzes
 
-# ================== RANDOM THUMBNAIL INTRO ==================
-def create_thumbnail_intro(first_question_text, total_q):
-    print(f"🎨 Thumbnail Intro बना रहा है ({total_q} Questions)...")
-    bg_color = random.choice(COLORS)
-    hook_text = random.choice(HOOKS)
+# ================== 🌟 ADVANCED THUMBNAIL MAKER ==================
+def create_thumbnail_intro(total_q):
+    print(f"🎨 Template से Thumbnail Intro बना रहा है ({total_q} Questions)...")
     
-    img = Image.new('RGB', (1920, 1080), color=bg_color)
+    # अगर आपने thumb_template.jpg गिटहब पर डाली है, तो उसे यूज़ करेगा
+    if os.path.exists(THUMB_TEMPLATE):
+        img = Image.open(THUMB_TEMPLATE).convert('RGB')
+        img = img.resize((1920, 1080))
+    else:
+        # अगर नहीं डाली है, तो बैकअप के लिए नीला बैकग्राउंड बना लेगा
+        print("⚠️ thumb_template.jpg नहीं मिली! बैकअप कलर यूज़ कर रहा है।")
+        img = Image.new('RGB', (1920, 1080), color=(10, 20, 50))
+        
     d = ImageDraw.Draw(img)
-    try: font_l = ImageFont.truetype(HINDI_FONT, 120); font_s = ImageFont.truetype(HINDI_FONT, 80)
-    except: font_l = ImageFont.load_default(); font_s = font_l
-
-    d.text((100, 150), f"🔥 {total_q} MEGA GK QUIZ 🔥", fill=(255, 200, 0), font=font_l)
-    d.text((100, 400), first_question_text[:50] + "...", fill=(255, 255, 255), font=font_s)
-    d.text((100, 800), hook_text, fill=(255, 50, 50), font=font_l)
-    img.save(THUMBNAIL_FILE)
     
-    intro_clip = ImageClip(THUMBNAIL_FILE).set_duration(3).set_fps(24)
-    # 🛠️ FIX: Added Silent Audio to Intro so FFmpeg doesn't crash during merge
+    try: font_super_large = ImageFont.truetype(HINDI_FONT, 200) # बहुत बड़ा फॉन्ट
+    except: font_super_large = ImageFont.load_default()
+
+    # 🖌️ 3D इफ़ेक्ट के साथ नंबर लिखना (मोटा काला बॉर्डर और पीला टेक्स्ट)
+    dynamic_text = f"TOP {total_q}"
+    
+    # X, Y पोजीशन जहाँ टेक्स्ट आएगा (आप इसे बदल सकते हैं अगर टेक्स्ट सही जगह न आये)
+    x_pos = 550 
+    y_pos = 70  
+
+    d.text((x_pos, y_pos), dynamic_text, fill=(255, 230, 0), font=font_super_large, stroke_width=15, stroke_fill=(0, 0, 0))
+    
+    img.save(THUMB_FILE)
+    
+    intro_clip = ImageClip(THUMB_FILE).set_duration(3).set_fps(24)
     silent_audio = AudioClip(lambda t: [0, 0], duration=3, fps=44100)
     intro_clip = intro_clip.set_audio(silent_audio)
     
@@ -234,7 +244,6 @@ def merge_videos_and_add_bgm(chunk_files, total_q):
     print(f"🔄 {total_q + 1} वीडियो (Intro + Questions) जोड़े जा रहे हैं...")
     concat_txt = os.path.abspath(os.path.join(TEMP_FOLDER, "files.txt"))
     
-    # 🛠️ FIX: Using Absolute Paths for FFmpeg
     with open(concat_txt, "w") as f:
         for chunk in chunk_files: 
             f.write(f"file '{os.path.abspath(chunk)}'\n")
@@ -242,23 +251,16 @@ def merge_videos_and_add_bgm(chunk_files, total_q):
     merged_no_bgm = os.path.abspath(os.path.join(OUTPUT_FOLDER, "merged_no_bgm.mp4"))
     final_output = os.path.abspath(os.path.join(OUTPUT_FOLDER, "FINAL_UPLOAD.mp4"))
     
-    print("▶️ FFmpeg Concat Running...")
     os.system(f"ffmpeg -f concat -safe 0 -i {concat_txt} -c copy {merged_no_bgm} -y")
     
     if os.path.exists(BGM_FILE) and os.path.exists(merged_no_bgm):
-        print("🎵 BGM लगाया जा रहा है...")
         bgm_abs = os.path.abspath(BGM_FILE)
         cmd = f'ffmpeg -i {merged_no_bgm} -stream_loop -1 -i {bgm_abs} -filter_complex "[1:a]volume=0.25[bgm];[0:a][bgm]amix=inputs=2:duration=first[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac {final_output} -y'
         os.system(cmd)
     else: 
-        print("⚠️ BGM Skipping...")
         if os.path.exists(merged_no_bgm):
             os.rename(merged_no_bgm, final_output)
             
-    if not os.path.exists(final_output):
-        print("❌ ERROR: Final Output File Was Not Created by FFmpeg!")
-        sys.exit(1)
-        
     return final_output
 
 # ================== YOUTUBE UPLOAD ==================
@@ -302,12 +304,13 @@ def upload_to_youtube(video_file, total_q):
 async def main():
     wait_time = random.randint(300, 1800) 
     print(f"🤖 Anti-Bot: वीडियो बनाने से पहले {wait_time // 60} मिनट इंतज़ार कर रहा है...")
-    time.sleep(10) # 👈 TEST के लिए मैंने इसे 10 सेकंड कर दिया है, काम करे तो इसे वापस 'wait_time' कर देना
+    time.sleep(wait_time) 
     
     quizzes = await prepare_questions_by_time()
     total_q = len(quizzes)
     
-    intro_path = create_thumbnail_intro(quizzes[0]['question'], total_q)
+    # 🌟 यहाँ से थंबनेल बनेगी
+    intro_path = create_thumbnail_intro(total_q)
     chunk_files = [intro_path]
     
     for i, quiz in enumerate(quizzes):
