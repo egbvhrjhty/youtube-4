@@ -1,4 +1,4 @@
-name: Test Bot (No Upload, Download Only)
+name: Test Premium Bot (Download Only)
 
 on:
   workflow_dispatch: 
@@ -36,5 +36,5 @@ jobs:
     - name: 📥 Upload Video For Download
       uses: actions/upload-artifact@v4
       with:
-        name: My-Test-Video
+        name: Premium-Test-Video
         path: output/FINAL_UPLOAD.mp4
