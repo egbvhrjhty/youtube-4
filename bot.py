@@ -14,7 +14,7 @@ TIMER_SECONDS = 5.0
 BG_COLORS = [(15, 32, 39), (66, 39, 9), (60, 10, 10)]
 
 # 👻 WATERMARK SETTINGS (चैनल का नाम)
-CHANNEL_WATERMARK = "Zoom Mind" # यहाँ अपने चैनल का नाम लिखें
+CHANNEL_WATERMARK = "Zoom Mind" 
 
 THUMB_TEMPLATE = "./thumb_template.jpg" 
 HINDI_FONT = "./NirmalaB.ttf" 
@@ -43,26 +43,48 @@ JSON_FILE_PATH = "./questions.json"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 
-# 🔍 AUTO WIKIPEDIA IMAGE FETCHER
+# 🔍 ADVANCED AUTO WIKIPEDIA IMAGE FETCHER (WITH FALLBACK)
 def fetch_related_image(keyword, index):
     print(f"🔍 '{keyword}' के लिए फोटो ढूँढ रहा हूँ...")
-    img_path = os.path.join(TEMP_FOLDER, f"img_{index}.jpg")
+    img_path = os.path.join(TEMP_FOLDER, f"img_{index}.png")
+    
+    # 1. Try to fetch from Wikipedia (Smart Search)
     try:
         encoded_kw = urllib.parse.quote(keyword)
-        url = f"https://hi.wikipedia.org/w/api.php?action=query&prop=pageimages&titles={encoded_kw}&format=json&pithumbsize=600"
+        # Using search generator to find the closest match instead of exact title
+        url = f"https://hi.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch={encoded_kw}&gsrlimit=1&prop=pageimages&pithumbsize=600&format=json"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         response = urllib.request.urlopen(req).read().decode('utf-8')
         data = json.loads(response)
-        pages = data['query']['pages']
-        for page_id in pages:
-            if 'thumbnail' in pages[page_id]:
-                img_url = pages[page_id]['thumbnail']['source']
-                urllib.request.urlretrieve(img_url, img_path)
-                print("✅ फोटो मिल गई!")
-                return img_path
+        
+        if 'query' in data and 'pages' in data['query']:
+            pages = data['query']['pages']
+            for page_id in pages:
+                if 'thumbnail' in pages[page_id]:
+                    img_url = pages[page_id]['thumbnail']['source']
+                    urllib.request.urlretrieve(img_url, img_path)
+                    print("✅ असली फोटो मिल गई!")
+                    return img_path
     except Exception as e:
-        print(f"⚠️ फोटो नहीं मिली: {e}")
-    return None
+        print(f"⚠️ विकिपीडिया एरर: {e}")
+
+    # 2. IF IMAGE NOT FOUND: Generate a Beautiful "Question Mark" Dummy Image
+    print("⚠️ असली फोटो नहीं मिली! डिफ़ॉल्ट (❔) डिज़ाइन बना रहा हूँ...")
+    img = Image.new('RGBA', (600, 600), (0, 0, 0, 0)) # Transparent background
+    draw = ImageDraw.Draw(img)
+    
+    # Draw a big circle
+    draw.ellipse((50, 50, 550, 550), outline=(255, 255, 255, 100), width=15)
+    
+    # Draw Question Mark
+    try: font_large = ImageFont.truetype(HINDI_FONT, 300)
+    except: font_large = ImageFont.load_default()
+    
+    # Center the question mark
+    draw.text((300, 270), "?", font=font_large, fill=(255, 255, 255, 150), anchor="mm")
+    
+    img.save(img_path)
+    return img_path
 
 def get_hindi_image_clip(text, filename, font_size, color_rgb, width_limit=50):
     font = ImageFont.truetype(HINDI_FONT, font_size)
@@ -80,7 +102,6 @@ def get_hindi_image_clip(text, filename, font_size, color_rgb, width_limit=50):
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
         w = bbox[2] - bbox[0]
-        # Align Left
         draw.text((10, y_text), line, font=font, fill=color_rgb)
         y_text += (bbox[3] - bbox[1]) + 15
     filepath = os.path.join(TEMP_FOLDER, filename)
@@ -159,6 +180,7 @@ async def make_video_chunk(quiz, index, total_q):
 
     # 🖼️ Auto Image on Right Side
     side_image_clip = None
+    # Passing BOTH Question and Answer to increase chance of finding image
     img_path = fetch_related_image(correct_ans_text, index)
     if img_path:
         side_image_clip = ImageClip(img_path).resize(width=600).set_position((1200, 'center')).set_duration(total)
@@ -166,7 +188,7 @@ async def make_video_chunk(quiz, index, total_q):
     q_clip = get_hindi_image_clip(quiz['question'], f"img_q_{index}.png", 85, (255,255,255), 45).set_position((100, 150)).set_start(0).set_duration(total)
     
     y_opts = 450
-    # 🌟 EXACT TEXT REPLACEMENT LOGIC (No Bounce)
+    # 🌟 EXACT TEXT REPLACEMENT LOGIC
     opt_a_white = get_hindi_image_clip(f"A) {text_a}", f"img_a_{index}.png", 75, (255,255,255), 45)
     opt_b_white = get_hindi_image_clip(f"B) {text_b}", f"img_b_{index}.png", 75, (255,255,255), 45)
     opt_c_white = get_hindi_image_clip(f"C) {text_c}", f"img_c_{index}.png", 75, (255,255,255), 45)
@@ -197,7 +219,8 @@ async def make_video_chunk(quiz, index, total_q):
     if not is_last: visuals.append(ans_clip)
     
     if is_last:
-        suspense = get_hindi_image_clip("👇 कमेंट में अपना जवाब दें! 👇", f"img_susp_{index}.png", 85, (0, 255, 255)).set_position(('center', 800)).set_start(s_ans).set_duration(total - s_ans)
+        # 🛠️ FIXED: Removed Emojis to prevent box rendering in PIL
+        suspense = get_hindi_image_clip("- कमेंट में अपना जवाब दें! -", f"img_susp_{index}.png", 85, (0, 255, 255)).set_position(('center', 800)).set_start(s_ans).set_duration(total - s_ans)
         visuals.append(suspense)
 
     video = CompositeVideoClip(visuals).set_audio(final_audio)
@@ -217,12 +240,10 @@ def merge_videos_and_add_bgm(chunk_files):
     merged_no_bgm = os.path.abspath(os.path.join(OUTPUT_FOLDER, "merged_no_bgm.mp4"))
     final_output = os.path.abspath(os.path.join(OUTPUT_FOLDER, "FINAL_UPLOAD.mp4"))
     
-    # 🎵 BGM STUTTER FIX: Enforced strict audio formatting during merge
     os.system(f"ffmpeg -f concat -safe 0 -i {concat_txt} -c:v copy -c:a aac -b:a 192k {merged_no_bgm} -y")
     
     if os.path.exists(BGM_FILE) and os.path.exists(merged_no_bgm):
         bgm_abs = os.path.abspath(BGM_FILE)
-        # 🎵 Flawless Audio Mixing
         cmd = f'ffmpeg -i {merged_no_bgm} -stream_loop -1 -i {bgm_abs} -filter_complex "[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a0];[1:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume={BGM_VOLUME}[a1];[a0][a1]amix=inputs=2:duration=first[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac {final_output} -y'
         os.system(cmd)
     else: 
@@ -230,8 +251,8 @@ def merge_videos_and_add_bgm(chunk_files):
     return final_output
 
 async def main():
-    print(f"🤖 Test Mode: 5 सेकंड इंतज़ार...")
-    time.sleep(5) 
+    print(f"🤖 Test Mode: 2 सेकंड इंतज़ार...")
+    time.sleep(2) 
     
     quizzes = await prepare_test_questions()
     total_q = len(quizzes)
