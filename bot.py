@@ -95,7 +95,7 @@ def make_tick_sfx(duration=5.0):
         return np.where(t_mod < 0.1, click, 0)
     return AudioClip(lambda t: np.vstack([sound_wave(t), sound_wave(t)]).T, duration=duration, fps=44100).volumex(1.5)
 
-# ================== DYNAMIC TIME CALCULATOR (THE BRAIN) ==================
+# ================== DYNAMIC TIME CALCULATOR ==================
 async def prepare_questions_by_time():
     target_seconds = random.randint(13*60, 14*60) # 13 to 14 mins
     print(f"🎯 Target Time: {target_seconds // 60} min {target_seconds % 60} sec")
@@ -119,13 +119,11 @@ async def prepare_questions_by_time():
         q_path = await generate_voice(speech_q_opts, f"q_{i}.mp3", "male")
         a_path = await generate_voice(speech_ans, f"a_{i}.mp3", "female")
 
-        # Measure exact duration
         q_clip = AudioFileClip(q_path)
         a_clip = AudioFileClip(a_path)
         chunk_dur = q_clip.duration + 0.5 + 5.0 + a_clip.duration + 1.5
         q_clip.close(); a_clip.close()
 
-        # Check if adding this question exceeds our target time
         if current_time + chunk_dur > target_seconds and len(used_quizzes) >= 15:
             print(f"✅ Target time reached! Total selected questions: {len(used_quizzes)}")
             break
@@ -135,12 +133,10 @@ async def prepare_questions_by_time():
         used_quizzes.append(quiz)
         current_time += chunk_dur
 
-    # Change the last question's answer to Suspense!
     last_q = used_quizzes[-1]
     suspense_path = await generate_voice("इसका जवाब आप कमेंट्स में बताइए!", f"a_last.mp3", "female")
     last_q['a_audio'] = suspense_path
 
-    # Delete used questions
     remaining = all_q[len(used_quizzes):]
     with open(JSON_FILE_PATH, 'w', encoding='utf-8') as f:
         json.dump(remaining, f, ensure_ascii=False, indent=4)
@@ -164,9 +160,13 @@ def create_thumbnail_intro(first_question_text, total_q):
     img.save(THUMBNAIL_FILE)
     
     intro_clip = ImageClip(THUMBNAIL_FILE).set_duration(3).set_fps(24)
+    # 🛠️ FIX: Added Silent Audio to Intro so FFmpeg doesn't crash during merge
+    silent_audio = AudioClip(lambda t: [0, 0], duration=3, fps=44100)
+    intro_clip = intro_clip.set_audio(silent_audio)
+    
     intro_path = os.path.join(TEMP_FOLDER, "chunk_0_intro.mp4")
-    intro_clip.write_videofile(intro_path, codec="libx264", fps=24, preset="ultrafast", logger=None)
-    intro_clip.close()
+    intro_clip.write_videofile(intro_path, codec="libx264", audio_codec="aac", fps=24, preset="ultrafast", logger=None)
+    intro_clip.close(); silent_audio.close()
     return intro_path
 
 # ================== VIDEO GENERATOR LOOP ==================
@@ -183,7 +183,6 @@ async def make_video_chunk(quiz, index, total_q):
     correct_key = quiz['correct_key']
     is_last = (index == total_q)
 
-    # Use pre-generated audio
     aud_q_opts = AudioFileClip(quiz['q_audio']).volumex(1.5)
     aud_ans = AudioFileClip(quiz['a_audio']).volumex(1.5)
 
@@ -232,19 +231,34 @@ async def make_video_chunk(quiz, index, total_q):
 
 # ================== MERGE & BGM ==================
 def merge_videos_and_add_bgm(chunk_files, total_q):
-    print(f"🔄 {total_q} वीडियो जोड़े जा रहे हैं...")
-    concat_txt = os.path.join(TEMP_FOLDER, "files.txt")
-    with open(concat_txt, "w") as f:
-        for chunk in chunk_files: f.write(f"file '{os.path.basename(chunk)}'\n")
+    print(f"🔄 {total_q + 1} वीडियो (Intro + Questions) जोड़े जा रहे हैं...")
+    concat_txt = os.path.abspath(os.path.join(TEMP_FOLDER, "files.txt"))
     
-    merged_no_bgm = os.path.join(OUTPUT_FOLDER, "merged_no_bgm.mp4")
-    final_output = os.path.join(OUTPUT_FOLDER, "FINAL_UPLOAD.mp4")
+    # 🛠️ FIX: Using Absolute Paths for FFmpeg
+    with open(concat_txt, "w") as f:
+        for chunk in chunk_files: 
+            f.write(f"file '{os.path.abspath(chunk)}'\n")
+    
+    merged_no_bgm = os.path.abspath(os.path.join(OUTPUT_FOLDER, "merged_no_bgm.mp4"))
+    final_output = os.path.abspath(os.path.join(OUTPUT_FOLDER, "FINAL_UPLOAD.mp4"))
+    
+    print("▶️ FFmpeg Concat Running...")
     os.system(f"ffmpeg -f concat -safe 0 -i {concat_txt} -c copy {merged_no_bgm} -y")
     
-    if os.path.exists(BGM_FILE):
-        cmd = f'ffmpeg -i {merged_no_bgm} -stream_loop -1 -i {BGM_FILE} -filter_complex "[1:a]volume=0.25[bgm];[0:a][bgm]amix=inputs=2:duration=first[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac {final_output} -y'
+    if os.path.exists(BGM_FILE) and os.path.exists(merged_no_bgm):
+        print("🎵 BGM लगाया जा रहा है...")
+        bgm_abs = os.path.abspath(BGM_FILE)
+        cmd = f'ffmpeg -i {merged_no_bgm} -stream_loop -1 -i {bgm_abs} -filter_complex "[1:a]volume=0.25[bgm];[0:a][bgm]amix=inputs=2:duration=first[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac {final_output} -y'
         os.system(cmd)
-    else: os.rename(merged_no_bgm, final_output)
+    else: 
+        print("⚠️ BGM Skipping...")
+        if os.path.exists(merged_no_bgm):
+            os.rename(merged_no_bgm, final_output)
+            
+    if not os.path.exists(final_output):
+        print("❌ ERROR: Final Output File Was Not Created by FFmpeg!")
+        sys.exit(1)
+        
     return final_output
 
 # ================== YOUTUBE UPLOAD ==================
@@ -252,7 +266,6 @@ def upload_to_youtube(video_file, total_q):
     print("🌐 YouTube पर अपलोड हो रहा है...")
     token_files = sorted([os.path.join(TOKENS_FOLDER, f) for f in os.listdir(TOKENS_FOLDER) if f.endswith('.json')])
     
-    # 🎲 Dynamic Title logic
     TITLES = [
         f"{total_q} Most Important GK Questions in Hindi 🔥 | Mega Quiz",
         f"Top {total_q} GK Quiz in Hindi 🤔 | General Knowledge Test",
@@ -289,25 +302,19 @@ def upload_to_youtube(video_file, total_q):
 async def main():
     wait_time = random.randint(300, 1800) 
     print(f"🤖 Anti-Bot: वीडियो बनाने से पहले {wait_time // 60} मिनट इंतज़ार कर रहा है...")
-    time.sleep(wait_time) 
+    time.sleep(10) # 👈 TEST के लिए मैंने इसे 10 सेकंड कर दिया है, काम करे तो इसे वापस 'wait_time' कर देना
     
-    # 1. AI Time & Question Selector
     quizzes = await prepare_questions_by_time()
     total_q = len(quizzes)
     
-    # 2. Intro
     intro_path = create_thumbnail_intro(quizzes[0]['question'], total_q)
     chunk_files = [intro_path]
     
-    # 3. Render
     for i, quiz in enumerate(quizzes):
         chunk_path = await make_video_chunk(quiz, i+1, total_q)
         chunk_files.append(chunk_path)
         
-    # 4. Merge
     final_video = merge_videos_and_add_bgm(chunk_files, total_q)
-    
-    # 5. Upload
     upload_to_youtube(final_video, total_q)
 
 if __name__ == "__main__":
