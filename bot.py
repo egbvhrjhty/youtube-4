@@ -1,17 +1,23 @@
 # =======================================================================
-# 🟢 EASY CUSTOMIZATION BLOCK 🟢
+# 🟢 EASY CUSTOMIZATION BLOCK (अपने 20 चैनल्स के लिए इसे बदलें) 🟢
 # =======================================================================
 
-BGM_FILE = "./bgm.mp3" 
-BGM_VOLUME = 0.25      
+# 1. 🏷️ TOP CENTER BANNER (स्क्रीन के ऊपर बीच में लाल रंग से क्या लिखना है?)
+TOP_CENTER_TITLE = "GK Questions" # Physics चैनल के लिए "Physics Questions" कर दें
 
+# 2. 🎵 BACKGROUND MUSIC
+BGM_FILE = "./bgm.mp3" 
+BGM_VOLUME = 0.35  # 🔊 आवाज़ बढ़ा दी गई है    
+
+# 3. 🗣️ VOICES & SPEED 
 VOICE_QUESTION = "hi-IN-MadhurNeural" 
 VOICE_ANSWER = "hi-IN-SwaraNeural"    
 VOICE_SPEED = "+0%"                   
 
+# 4. ⏳ TIMER
 TIMER_SECONDS = 5.0  
 
-# 👻 WATERMARK SETTINGS
+# 5. 👻 WATERMARK SETTINGS
 CHANNEL_WATERMARK = "Zoom Mind" 
 
 THUMB_TEMPLATE = "./thumb_template.jpg" 
@@ -21,7 +27,7 @@ HINDI_FONT = "./NirmalaB.ttf"
 # 🛑 STOP! DO NOT EDIT BELOW THIS LINE 🛑
 # =======================================================================
 
-import os, random, time, json, asyncio, sys, textwrap
+import os, random, time, json, asyncio, sys, textwrap, re
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
@@ -43,14 +49,36 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 os.makedirs(BG_FOLDER, exist_ok=True)
 
-# 🌟 ADVANCED TEXT GENERATOR: 2 शब्दों को लाल करने वाला लॉजिक
+# 🌟 TOP CENTER BANNER GENERATOR (Red Text + Box)
+def create_top_banner(text, filename):
+    try: font = ImageFont.truetype(HINDI_FONT, 50)
+    except: font = ImageFont.load_default()
+    
+    dummy = Image.new('RGBA', (1,1))
+    draw = ImageDraw.Draw(dummy)
+    bbox = draw.textbbox((0,0), text, font=font)
+    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    img_w, img_h = w + 80, h + 30
+    img = Image.new('RGBA', (img_w, img_h), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+
+    # Draw White Box with Dark Red Border
+    draw.rectangle([(5, 5), (img_w-5, img_h-5)], fill=(255, 255, 255, 230), outline=(150, 0, 0, 255), width=3)
+    
+    # Draw Red Text
+    draw.text(((img_w - w)/2, (img_h - h)/2 - 5), text, font=font, fill=(200, 0, 0, 255))
+
+    filepath = os.path.join(TEMP_FOLDER, filename)
+    img.save(filepath)
+    return ImageClip(filepath)
+
 def get_multicolor_hindi_image_clip(text, filename, font_size, default_color, highlight_color=(200, 0, 0), width_limit=45, highlight=False):
     font = ImageFont.truetype(HINDI_FONT, font_size)
     words = text.split()
     
     highlight_indices = []
     if highlight and len(words) > 3:
-        # सिर्फ बड़े शब्दों को लाल करेगा (ताकि 'है', 'का' जैसे शब्द लाल न हों)
         valid_indices = [i for i, w in enumerate(words) if len(w) > 2]
         if len(valid_indices) >= 2:
             highlight_indices = random.sample(valid_indices, 2)
@@ -90,7 +118,7 @@ def get_multicolor_hindi_image_clip(text, filename, font_size, default_color, hi
     
     y_pos = 10
     for idx, line in enumerate(lines):
-        x_pos = ((max_w + 40) - line_widths[idx]) / 2 # Center Align
+        x_pos = ((max_w + 40) - line_widths[idx]) / 2 
         for word, orig_i in line:
             color = highlight_color if orig_i in highlight_indices else default_color
             draw.text((x_pos, y_pos), word, font=font, fill=color)
@@ -120,7 +148,7 @@ def make_tick_sfx(duration=TIMER_SECONDS):
     return AudioClip(lambda t: np.vstack([sound_wave(t), sound_wave(t)]).T, duration=duration, fps=44100).volumex(1.5)
 
 async def prepare_test_questions():
-    print(f"🎯 Test Mode: सिर्फ 4 सवाल ले रहा हूँ...")
+    print(f"🎯 Test Mode: 4 सवाल ले रहा हूँ...")
     with open(JSON_FILE_PATH, 'r', encoding='utf-8') as f: all_q = json.load(f)
     if len(all_q) < 4:
         print("❌ Error: JSON में 4 सवाल भी नहीं हैं!")
@@ -134,7 +162,11 @@ async def prepare_test_questions():
         correct_key = quiz['correct_key']
         correct_ans_text = text_a if correct_key == 'A' else text_b if correct_key == 'B' else text_c
 
-        speech_q_opts = f"{quiz['question']}... ऑप्शन ए, {text_a}... ऑप्शन बी, {text_b}... ऑप्शन सी, {text_c}"
+        # 🧹 FIX: Removing any existing "प्रश्न संख्या X:" from JSON
+        clean_question = re.sub(r"^प्रश्न.*?:\s*", "", quiz['question'])
+        quiz['clean_q'] = clean_question # Saving clean question for visual rendering
+
+        speech_q_opts = f"{clean_question}... ऑप्शन ए, {text_a}... ऑप्शन बी, {text_b}... ऑप्शन सी, {text_c}"
         speech_ans = f"सही जवाब है, {correct_ans_text}"
 
         quiz['q_audio'] = await generate_voice(speech_q_opts, f"q_{i}.mp3", "male")
@@ -147,7 +179,6 @@ async def prepare_test_questions():
 async def make_video_chunk(quiz, index, total_q, bg_image_path):
     print(f"\n🎬 रेंडर: सवाल {index}/{total_q}")
     
-    # 🔠 Options With A, B, C
     text_a = "A) " + quiz['opt_a'].replace("A)", "").replace("A.", "").strip()
     text_b = "B) " + quiz['opt_b'].replace("B)", "").replace("B.", "").strip()
     text_c = "C) " + quiz['opt_c'].replace("C)", "").replace("C.", "").strip()
@@ -161,7 +192,6 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
     s_timer = t; t += TIMER_SECONDS
     s_ans = t; t += aud_ans.duration + 1.5; total = t
 
-    # 🖼️ Background Logic
     if bg_image_path:
         bg = ImageClip(bg_image_path).resize((1920, 1080)).set_duration(total).set_fps(24)
     else:
@@ -169,21 +199,21 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
     
     watermark = TextClip(CHANNEL_WATERMARK, fontsize=120, color='black', font='Arial-Bold').set_opacity(0.04).set_position('center').set_duration(total)
 
-    lvl_bg = ColorClip(size=(350, 80), color=(10, 30, 20)).set_position((50, 40)).set_duration(total)
-    lvl_clip = TextClip("LEVEL: EASY", fontsize=45, color='yellow', font='Arial-Bold').set_position((80, 55)).set_duration(total)
+    # 🌟 NEW TOP CENTER BANNER
+    top_banner_clip = create_top_banner(TOP_CENTER_TITLE, f"banner_{index}.png").set_position(('center', 30)).set_duration(total)
     
-    prog_bg = ColorClip(size=(300, 80), color=(10, 20, 40)).set_position((1550, 40)).set_duration(total)
-    prog_clip = TextClip(f"Q: {index}/{total_q}", fontsize=45, color='white', font='Arial-Bold').set_position((1600, 55)).set_duration(total)
+    # Progress Top Right
+    prog_bg = ColorClip(size=(250, 60), color=(10, 20, 40)).set_position((1600, 30)).set_duration(total)
+    prog_clip = TextClip(f"Q: {index}/{total_q}", fontsize=40, color='white', font='Arial-Bold').set_position((1630, 40)).set_duration(total)
 
-    # 🔠 Question (BLACK with RED HIGHLIGHTS)
-    q_text = f"प्रश्न {index}: {quiz['question']}"
-    q_color = (0, 0, 0) # Black
-    red_highlight = (200, 0, 0) # Red
-    q_clip = get_multicolor_hindi_image_clip(q_text, f"img_q_{index}.png", 95, q_color, highlight_color=red_highlight, width_limit=45, highlight=True).set_position(('center', 180)).set_start(0).set_duration(total)
+    # 🔠 Cleaned Question with Red Highlight
+    q_text = f"प्रश्न {index}: {quiz['clean_q']}"
+    q_color = (0, 0, 0) 
+    red_highlight = (200, 0, 0) 
+    q_clip = get_multicolor_hindi_image_clip(q_text, f"img_q_{index}.png", 95, q_color, highlight_color=red_highlight, width_limit=45, highlight=True).set_position(('center', 160)).set_start(0).set_duration(total)
     
     divider = ColorClip(size=(1200, 4), color=(100, 50, 20)).set_position(('center', 420)).set_duration(total)
 
-    # 🔠 Options (DARK BLUE) with A, B, C
     opt_color = (0, 0, 51) 
     y_opts = 480
     
@@ -191,7 +221,7 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
     opt_b_white = get_multicolor_hindi_image_clip(text_b, f"img_b_{index}.png", 80, opt_color, width_limit=50)
     opt_c_white = get_multicolor_hindi_image_clip(text_c, f"img_c_{index}.png", 80, opt_color, width_limit=50)
 
-    ans_color = (0, 100, 0) # Dark Green
+    ans_color = (0, 100, 0) 
     
     if correct_key == 'A':
         opt_a_clip = opt_a_white.set_position(('center', y_opts)).set_start(0).set_end(s_ans)
@@ -218,7 +248,7 @@ async def make_video_chunk(quiz, index, total_q, bg_image_path):
 
     final_audio = CompositeAudioClip([aud_q_opts.set_start(s_q_opts), tick, aud_ans.set_start(s_ans)])
     
-    visuals = [bg, watermark, lvl_bg, lvl_clip, prog_bg, prog_clip, divider, q_clip, opt_a_clip, opt_b_clip, opt_c_clip] + timer_vis
+    visuals = [bg, watermark, top_banner_clip, prog_bg, prog_clip, divider, q_clip, opt_a_clip, opt_b_clip, opt_c_clip] + timer_vis
     
     if not is_last: visuals.append(ans_clip)
     
