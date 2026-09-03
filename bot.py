@@ -1,5 +1,5 @@
 # =======================================================================
-# 🟢 EASY CUSTOMIZATION BLOCK (सिर्फ इसे बदलें) 🟢
+# 🟢 EASY CUSTOMIZATION BLOCK 🟢
 # =======================================================================
 
 BGM_FILE = "./bgm.mp3" 
@@ -11,9 +11,7 @@ VOICE_SPEED = "+0%"
 
 TIMER_SECONDS = 5.0  
 
-BG_COLORS = [(15, 32, 39), (66, 39, 9), (60, 10, 10)]
-
-# 👻 WATERMARK SETTINGS (चैनल का नाम)
+# 👻 WATERMARK SETTINGS
 CHANNEL_WATERMARK = "Zoom Mind" 
 
 THUMB_TEMPLATE = "./thumb_template.jpg" 
@@ -23,7 +21,7 @@ HINDI_FONT = "./NirmalaB.ttf"
 # 🛑 STOP! DO NOT EDIT BELOW THIS LINE 🛑
 # =======================================================================
 
-import os, random, time, json, asyncio, sys, textwrap, urllib.request, urllib.parse
+import os, random, time, json, asyncio, sys, textwrap
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
@@ -39,71 +37,66 @@ from moviepy.audio.AudioClip import AudioClip
 OUTPUT_FOLDER = "./output"
 TEMP_FOLDER = "./temp"
 JSON_FILE_PATH = "./questions.json"
+BG_FOLDER = "./bgs" 
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
+os.makedirs(BG_FOLDER, exist_ok=True)
 
-# 🔍 ADVANCED AUTO WIKIPEDIA IMAGE FETCHER (WITH FALLBACK)
-def fetch_related_image(keyword, index):
-    print(f"🔍 '{keyword}' के लिए फोटो ढूँढ रहा हूँ...")
-    img_path = os.path.join(TEMP_FOLDER, f"img_{index}.png")
-    
-    # 1. Try to fetch from Wikipedia (Smart Search)
-    try:
-        encoded_kw = urllib.parse.quote(keyword)
-        # Using search generator to find the closest match instead of exact title
-        url = f"https://hi.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch={encoded_kw}&gsrlimit=1&prop=pageimages&pithumbsize=600&format=json"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        response = urllib.request.urlopen(req).read().decode('utf-8')
-        data = json.loads(response)
-        
-        if 'query' in data and 'pages' in data['query']:
-            pages = data['query']['pages']
-            for page_id in pages:
-                if 'thumbnail' in pages[page_id]:
-                    img_url = pages[page_id]['thumbnail']['source']
-                    urllib.request.urlretrieve(img_url, img_path)
-                    print("✅ असली फोटो मिल गई!")
-                    return img_path
-    except Exception as e:
-        print(f"⚠️ विकिपीडिया एरर: {e}")
-
-    # 2. IF IMAGE NOT FOUND: Generate a Beautiful "Question Mark" Dummy Image
-    print("⚠️ असली फोटो नहीं मिली! डिफ़ॉल्ट (❔) डिज़ाइन बना रहा हूँ...")
-    img = Image.new('RGBA', (600, 600), (0, 0, 0, 0)) # Transparent background
-    draw = ImageDraw.Draw(img)
-    
-    # Draw a big circle
-    draw.ellipse((50, 50, 550, 550), outline=(255, 255, 255, 100), width=15)
-    
-    # Draw Question Mark
-    try: font_large = ImageFont.truetype(HINDI_FONT, 300)
-    except: font_large = ImageFont.load_default()
-    
-    # Center the question mark
-    draw.text((300, 270), "?", font=font_large, fill=(255, 255, 255, 150), anchor="mm")
-    
-    img.save(img_path)
-    return img_path
-
-def get_hindi_image_clip(text, filename, font_size, color_rgb, width_limit=50):
+# 🌟 ADVANCED TEXT GENERATOR: 2 शब्दों को लाल करने वाला लॉजिक
+def get_multicolor_hindi_image_clip(text, filename, font_size, default_color, highlight_color=(200, 0, 0), width_limit=45, highlight=False):
     font = ImageFont.truetype(HINDI_FONT, font_size)
-    lines = textwrap.wrap(text, width=width_limit) 
+    words = text.split()
+    
+    highlight_indices = []
+    if highlight and len(words) > 3:
+        # सिर्फ बड़े शब्दों को लाल करेगा (ताकि 'है', 'का' जैसे शब्द लाल न हों)
+        valid_indices = [i for i, w in enumerate(words) if len(w) > 2]
+        if len(valid_indices) >= 2:
+            highlight_indices = random.sample(valid_indices, 2)
+        elif valid_indices:
+            highlight_indices = valid_indices
+
+    lines = []
+    current_line = []; current_length = 0
+    for i, word in enumerate(words):
+        if current_length + len(word) > width_limit and current_line:
+            lines.append(current_line)
+            current_line = [(word, i)]
+            current_length = len(word) + 1
+        else:
+            current_line.append((word, i))
+            current_length += len(word) + 1
+    if current_line: lines.append(current_line)
+        
     dummy_img = Image.new('RGBA', (1, 1))
     draw = ImageDraw.Draw(dummy_img)
-    y_text = 0; max_w = 0
+    
+    max_w = 0; y_text = 0
+    line_heights = []; line_widths = []
+    
     for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        max_w = max(max_w, bbox[2] - bbox[0])
-        y_text += (bbox[3] - bbox[1]) + 15
-    img = Image.new('RGBA', (max_w + 20, y_text + 20), (255, 255, 255, 0))
+        line_str = " ".join([w[0] for w in line])
+        bbox = draw.textbbox((0, 0), line_str, font=font)
+        lw = bbox[2] - bbox[0]
+        lh = bbox[3] - bbox[1]
+        max_w = max(max_w, lw)
+        line_widths.append(lw)
+        line_heights.append(lh)
+        y_text += lh + 15
+        
+    img = Image.new('RGBA', (max_w + 40, y_text + 40), (255, 255, 255, 0))
     draw = ImageDraw.Draw(img)
-    y_text = 10
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        w = bbox[2] - bbox[0]
-        draw.text((10, y_text), line, font=font, fill=color_rgb)
-        y_text += (bbox[3] - bbox[1]) + 15
+    
+    y_pos = 10
+    for idx, line in enumerate(lines):
+        x_pos = ((max_w + 40) - line_widths[idx]) / 2 # Center Align
+        for word, orig_i in line:
+            color = highlight_color if orig_i in highlight_indices else default_color
+            draw.text((x_pos, y_pos), word, font=font, fill=color)
+            x_pos += draw.textlength(word + " ", font=font)
+        y_pos += line_heights[idx] + 15
+        
     filepath = os.path.join(TEMP_FOLDER, filename)
     img.save(filepath)
     return ImageClip(filepath)
@@ -126,7 +119,6 @@ def make_tick_sfx(duration=TIMER_SECONDS):
         return np.where(t_mod < 0.1, click, 0)
     return AudioClip(lambda t: np.vstack([sound_wave(t), sound_wave(t)]).T, duration=duration, fps=44100).volumex(1.5)
 
-# 🧪 TEST MODE LOGIC (Fixed 4 Questions)
 async def prepare_test_questions():
     print(f"🎯 Test Mode: सिर्फ 4 सवाल ले रहा हूँ...")
     with open(JSON_FILE_PATH, 'r', encoding='utf-8') as f: all_q = json.load(f)
@@ -136,9 +128,9 @@ async def prepare_test_questions():
     
     used_quizzes = all_q[:4]
     for i, quiz in enumerate(used_quizzes):
-        text_a = quiz['opt_a'].replace("A)", "").strip()
-        text_b = quiz['opt_b'].replace("B)", "").strip()
-        text_c = quiz['opt_c'].replace("C)", "").strip()
+        text_a = quiz['opt_a'].replace("A)", "").replace("A.", "").strip()
+        text_b = quiz['opt_b'].replace("B)", "").replace("B.", "").strip()
+        text_c = quiz['opt_c'].replace("C)", "").replace("C.", "").strip()
         correct_key = quiz['correct_key']
         correct_ans_text = text_a if correct_key == 'A' else text_b if correct_key == 'B' else text_c
 
@@ -152,16 +144,15 @@ async def prepare_test_questions():
     last_q['a_audio'] = await generate_voice("इसका जवाब आप कमेंट्स में बताइए!", f"a_last.mp3", "female")
     return used_quizzes
 
-async def make_video_chunk(quiz, index, total_q):
+async def make_video_chunk(quiz, index, total_q, bg_image_path):
     print(f"\n🎬 रेंडर: सवाल {index}/{total_q}")
     
-    bg_color = BG_COLORS[0] # Test mode color
-    text_a = quiz['opt_a'].replace("A)", "").strip()
-    text_b = quiz['opt_b'].replace("B)", "").strip()
-    text_c = quiz['opt_c'].replace("C)", "").strip()
+    # 🔠 Options With A, B, C
+    text_a = "A) " + quiz['opt_a'].replace("A)", "").replace("A.", "").strip()
+    text_b = "B) " + quiz['opt_b'].replace("B)", "").replace("B.", "").strip()
+    text_c = "C) " + quiz['opt_c'].replace("C)", "").replace("C.", "").strip()
     correct_key = quiz['correct_key']
     is_last = (index == total_q)
-    correct_ans_text = text_a if correct_key == 'A' else text_b if correct_key == 'B' else text_c
 
     aud_q_opts = AudioFileClip(quiz['q_audio']).volumex(1.5)
     aud_ans = AudioFileClip(quiz['a_audio']).volumex(1.5)
@@ -170,57 +161,69 @@ async def make_video_chunk(quiz, index, total_q):
     s_timer = t; t += TIMER_SECONDS
     s_ans = t; t += aud_ans.duration + 1.5; total = t
 
-    bg = ColorClip(size=(1920, 1080), color=bg_color).set_duration(total).set_fps(24)
-    
-    # 👻 WATERMARK
-    watermark = TextClip(CHANNEL_WATERMARK, fontsize=120, color='white', font='Arial-Bold').set_opacity(0.05).set_position('center').set_duration(total)
-
-    lvl_clip = TextClip("LEVEL: EASY", fontsize=45, color='yellow', font='Arial-Bold').set_position((50, 40)).set_duration(total)
-    prog_clip = TextClip(f"Q: {index}/{total_q}", fontsize=45, color='white', font='Arial-Bold').set_position((1700, 40)).set_duration(total)
-
-    # 🖼️ Auto Image on Right Side
-    side_image_clip = None
-    # Passing BOTH Question and Answer to increase chance of finding image
-    img_path = fetch_related_image(correct_ans_text, index)
-    if img_path:
-        side_image_clip = ImageClip(img_path).resize(width=600).set_position((1200, 'center')).set_duration(total)
-
-    q_clip = get_hindi_image_clip(quiz['question'], f"img_q_{index}.png", 85, (255,255,255), 45).set_position((100, 150)).set_start(0).set_duration(total)
-    
-    y_opts = 450
-    # 🌟 EXACT TEXT REPLACEMENT LOGIC
-    opt_a_white = get_hindi_image_clip(f"A) {text_a}", f"img_a_{index}.png", 75, (255,255,255), 45)
-    opt_b_white = get_hindi_image_clip(f"B) {text_b}", f"img_b_{index}.png", 75, (255,255,255), 45)
-    opt_c_white = get_hindi_image_clip(f"C) {text_c}", f"img_c_{index}.png", 75, (255,255,255), 45)
-
-    if correct_key == 'A':
-        opt_a_clip = opt_a_white.set_position((150, y_opts)).set_start(0).set_end(s_ans)
-        ans_clip = get_hindi_image_clip(f"A) {text_a}", f"ans_{index}.png", 75, (0,255,0), 45).set_position((150, y_opts)).set_start(s_ans).set_duration(total - s_ans)
-        opt_b_clip = opt_b_white.set_position((150, y_opts+130)).set_duration(total)
-        opt_c_clip = opt_c_white.set_position((150, y_opts+260)).set_duration(total)
-    elif correct_key == 'B':
-        opt_a_clip = opt_a_white.set_position((150, y_opts)).set_duration(total)
-        opt_b_clip = opt_b_white.set_position((150, y_opts+130)).set_start(0).set_end(s_ans)
-        ans_clip = get_hindi_image_clip(f"B) {text_b}", f"ans_{index}.png", 75, (0,255,0), 45).set_position((150, y_opts+130)).set_start(s_ans).set_duration(total - s_ans)
-        opt_c_clip = opt_c_white.set_position((150, y_opts+260)).set_duration(total)
+    # 🖼️ Background Logic
+    if bg_image_path:
+        bg = ImageClip(bg_image_path).resize((1920, 1080)).set_duration(total).set_fps(24)
     else:
-        opt_a_clip = opt_a_white.set_position((150, y_opts)).set_duration(total)
-        opt_b_clip = opt_b_white.set_position((150, y_opts+130)).set_duration(total)
-        opt_c_clip = opt_c_white.set_position((150, y_opts+260)).set_start(0).set_end(s_ans)
-        ans_clip = get_hindi_image_clip(f"C) {text_c}", f"ans_{index}.png", 75, (0,255,0), 45).set_position((150, y_opts+260)).set_start(s_ans).set_duration(total - s_ans)
+        bg = ColorClip(size=(1920, 1080), color=(240, 240, 240)).set_duration(total).set_fps(24)
+    
+    watermark = TextClip(CHANNEL_WATERMARK, fontsize=120, color='black', font='Arial-Bold').set_opacity(0.04).set_position('center').set_duration(total)
+
+    lvl_bg = ColorClip(size=(350, 80), color=(10, 30, 20)).set_position((50, 40)).set_duration(total)
+    lvl_clip = TextClip("LEVEL: EASY", fontsize=45, color='yellow', font='Arial-Bold').set_position((80, 55)).set_duration(total)
+    
+    prog_bg = ColorClip(size=(300, 80), color=(10, 20, 40)).set_position((1550, 40)).set_duration(total)
+    prog_clip = TextClip(f"Q: {index}/{total_q}", fontsize=45, color='white', font='Arial-Bold').set_position((1600, 55)).set_duration(total)
+
+    # 🔠 Question (BLACK with RED HIGHLIGHTS)
+    q_text = f"प्रश्न {index}: {quiz['question']}"
+    q_color = (0, 0, 0) # Black
+    red_highlight = (200, 0, 0) # Red
+    q_clip = get_multicolor_hindi_image_clip(q_text, f"img_q_{index}.png", 95, q_color, highlight_color=red_highlight, width_limit=45, highlight=True).set_position(('center', 180)).set_start(0).set_duration(total)
+    
+    divider = ColorClip(size=(1200, 4), color=(100, 50, 20)).set_position(('center', 420)).set_duration(total)
+
+    # 🔠 Options (DARK BLUE) with A, B, C
+    opt_color = (0, 0, 51) 
+    y_opts = 480
+    
+    opt_a_white = get_multicolor_hindi_image_clip(text_a, f"img_a_{index}.png", 80, opt_color, width_limit=50)
+    opt_b_white = get_multicolor_hindi_image_clip(text_b, f"img_b_{index}.png", 80, opt_color, width_limit=50)
+    opt_c_white = get_multicolor_hindi_image_clip(text_c, f"img_c_{index}.png", 80, opt_color, width_limit=50)
+
+    ans_color = (0, 100, 0) # Dark Green
+    
+    if correct_key == 'A':
+        opt_a_clip = opt_a_white.set_position(('center', y_opts)).set_start(0).set_end(s_ans)
+        ans_clip = get_multicolor_hindi_image_clip(text_a, f"ans_{index}.png", 80, ans_color, width_limit=50).set_position(('center', y_opts)).set_start(s_ans).set_duration(total - s_ans)
+        opt_b_clip = opt_b_white.set_position(('center', y_opts+130)).set_duration(total)
+        opt_c_clip = opt_c_white.set_position(('center', y_opts+260)).set_duration(total)
+    elif correct_key == 'B':
+        opt_a_clip = opt_a_white.set_position(('center', y_opts)).set_duration(total)
+        opt_b_clip = opt_b_white.set_position(('center', y_opts+130)).set_start(0).set_end(s_ans)
+        ans_clip = get_multicolor_hindi_image_clip(text_b, f"ans_{index}.png", 80, ans_color, width_limit=50).set_position(('center', y_opts+130)).set_start(s_ans).set_duration(total - s_ans)
+        opt_c_clip = opt_c_white.set_position(('center', y_opts+260)).set_duration(total)
+    else:
+        opt_a_clip = opt_a_white.set_position(('center', y_opts)).set_duration(total)
+        opt_b_clip = opt_b_white.set_position(('center', y_opts+130)).set_duration(total)
+        opt_c_clip = opt_c_white.set_position(('center', y_opts+260)).set_start(0).set_end(s_ans)
+        ans_clip = get_multicolor_hindi_image_clip(text_c, f"ans_{index}.png", 80, ans_color, width_limit=50).set_position(('center', y_opts+260)).set_start(s_ans).set_duration(total - s_ans)
 
     tick = make_tick_sfx(TIMER_SECONDS).set_start(s_timer)
-    timer_vis = [TextClip(f"0{int(TIMER_SECONDS)-i}" if (int(TIMER_SECONDS)-i)<10 else f"{int(TIMER_SECONDS)-i}", fontsize=130, color='red' if int(TIMER_SECONDS)-i<=3 else 'yellow', font='Arial-Bold').set_position(('center', 800)).set_start(s_timer+i).set_duration(1.0) for i in range(int(TIMER_SECONDS))]
+    timer_vis = []
+    for i in range(int(TIMER_SECONDS)):
+        t_val = int(TIMER_SECONDS)-i
+        t_color = 'red' if t_val <= 3 else 'blue'
+        timer_vis.append(TextClip(f"0{t_val}" if t_val<10 else f"{t_val}", fontsize=140, color=t_color, font='Arial-Bold').set_position(('center', 850)).set_start(s_timer+i).set_duration(1.0))
 
     final_audio = CompositeAudioClip([aud_q_opts.set_start(s_q_opts), tick, aud_ans.set_start(s_ans)])
-    visuals = [bg, watermark, lvl_clip, prog_clip, q_clip, opt_a_clip, opt_b_clip, opt_c_clip] + timer_vis
     
-    if side_image_clip: visuals.append(side_image_clip)
+    visuals = [bg, watermark, lvl_bg, lvl_clip, prog_bg, prog_clip, divider, q_clip, opt_a_clip, opt_b_clip, opt_c_clip] + timer_vis
+    
     if not is_last: visuals.append(ans_clip)
     
     if is_last:
-        # 🛠️ FIXED: Removed Emojis to prevent box rendering in PIL
-        suspense = get_hindi_image_clip("- कमेंट में अपना जवाब दें! -", f"img_susp_{index}.png", 85, (0, 255, 255)).set_position(('center', 800)).set_start(s_ans).set_duration(total - s_ans)
+        suspense = get_multicolor_hindi_image_clip("- कमेंट में अपना जवाब दें! -", f"img_susp_{index}.png", 85, (200, 0, 0)).set_position(('center', 850)).set_start(s_ans).set_duration(total - s_ans)
         visuals.append(suspense)
 
     video = CompositeVideoClip(visuals).set_audio(final_audio)
@@ -257,9 +260,17 @@ async def main():
     quizzes = await prepare_test_questions()
     total_q = len(quizzes)
     
+    bg_files = [f for f in os.listdir(BG_FOLDER) if f.endswith(('.png', '.jpg', '.jpeg'))]
+    if bg_files:
+        selected_bg = os.path.join(BG_FOLDER, random.choice(bg_files))
+        print(f"🖼️ बैकग्राउंड सेलेक्ट किया गया: {os.path.basename(selected_bg)}")
+    else:
+        selected_bg = None
+        print("⚠️ 'bgs' फोल्डर खाली है! सफ़ेद बैकग्राउंड यूज़ कर रहा हूँ।")
+    
     chunk_files = []
     for i, quiz in enumerate(quizzes):
-        chunk_path = await make_video_chunk(quiz, i+1, total_q)
+        chunk_path = await make_video_chunk(quiz, i+1, total_q, selected_bg)
         chunk_files.append(chunk_path)
         
     final_video = merge_videos_and_add_bgm(chunk_files)
